@@ -1,12 +1,13 @@
 #!/bin/bash
-#file : nm-convert-ifcfg-to-keyfile.sh
+#file : networkmanager-migrate-ifcfg-files-to-nm-keyfiles.sh
 #author: justin@grangerx.com
-#version: 2024.10.02.a
+#version: 2025.08.16.a
 
 VERBOSE="FALSE"
 IFCFGPATHPREFIX="/etc/sysconfig/network-scripts/"
 NMCONNPATHPREFIX="/etc/NetworkManager/system-connections"
 IFCFGFNAMEPREFIX="ifcfg-"
+
 
 #check for the running NetworkManager.service, exit if it is not running
 NMSVCRUNNING=$( systemctl show -p SubState --value NetworkManager.service )
@@ -217,6 +218,12 @@ function processafile() {
 	vecho "#bkupconnfilename: ${bkupconnfilename}"
 	vecho "#bkupconnfilepath: ${bkupconnfilepath}"
 
+
+	#get current epoch timestamp:
+	GEN_TIMESTAMP="$( date +%s )"
+	#get a uuid to use in case the file doesn't include them
+	GEN_UUID="$( uuidgen )"
+
 	if [ ! -f "${ifcfgfilepath}" ]; then echo "ERROR: File ${ifcfgfilepath} does not exist or is inaccessible. Exiting." ; exit 1 ; fi
 	if [ "${ifcfgfilename}" == "ifcfg-lo" ]; then echo "NOTE: File ${ifcfgfilepath} will not be processed since it refers to interface 'lo'" ; return  ; fi
 
@@ -303,8 +310,11 @@ function processafile() {
 		esac
 	done
 
-	#set some needed properties, in case the ifcfg did not have them:
+	#set some needed default properties, in case the ifcfg did not have them:
+	setproperty -k 'connection.id' -v  "${interfacename}"
+	setproperty -k 'connection.timestamp' -v "${GEN_TIMESTAMP}" -c
 	setproperty -k 'connection.type' -v 'ethernet' -c
+	setproperty -k 'connection.uuid' -v "${GEN_UUID}" -c
 
 
 	#coalesce the multi-valued params:
@@ -351,3 +361,4 @@ echo "#----------------------------------"
 echo "Conversion completed. Please validate the files in ${NMCONNPATHPREFIX} ."
 echo "#----------------------------------"
 #EOF
+
