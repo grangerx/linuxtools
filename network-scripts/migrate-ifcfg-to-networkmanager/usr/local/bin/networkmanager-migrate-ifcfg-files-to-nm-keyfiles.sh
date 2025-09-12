@@ -1,7 +1,7 @@
 #!/bin/bash
 #file : networkmanager-migrate-ifcfg-files-to-nm-keyfiles.sh
 #author: justin@grangerx.com
-#version: 2025.09.12.a
+#version: 2025.09.12.b
 
 VERBOSE="FALSE"
 IFCFGPATHPREFIX="/etc/sysconfig/network-scripts/"
@@ -72,10 +72,11 @@ export -f netmasktoprefix
 #--------------
 
 #--------------
-#-v- function setproperty() - given a property key and value, sets the props array[key]=value, optionally warning if already set.
+#-v- function setproperty() - given a property section, key, and value, sets the props array[section.key]=value, optionally warning if already set.
 #--------------
 function setproperty() {
 	local OPTIND
+	local sk
 	while getopts 'cs:k:v:w' arg ; do
 		case ${arg} in
 			s) local section="${OPTARG}" ;;
@@ -88,7 +89,12 @@ function setproperty() {
 	done
 	shift $((OPTIND-1))
 
-	local sk="${section}.${key}"
+	#if a section was given, create a key like section.key, otherwise just use key:
+	if [ -n "${section}" ]; then
+		sk="${section}.${key}"
+	else
+		sk="${key}"
+	fi
 
 	#warn if the key was already set and warn was requested (defaults to 'no')
 	if [ "${props[${sk}]+isset}" ] ; then
