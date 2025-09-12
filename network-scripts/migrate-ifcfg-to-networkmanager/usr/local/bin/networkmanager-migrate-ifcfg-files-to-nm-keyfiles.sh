@@ -1,7 +1,7 @@
 #!/bin/bash
 #file : networkmanager-migrate-ifcfg-files-to-nm-keyfiles.sh
 #author: justin@grangerx.com
-#version: 2025.08.16.a
+#version: 2025.09.12.a
 
 VERBOSE="FALSE"
 IFCFGPATHPREFIX="/etc/sysconfig/network-scripts/"
@@ -76,8 +76,9 @@ export -f netmasktoprefix
 #--------------
 function setproperty() {
 	local OPTIND
-	while getopts 'ck:v:w' arg ; do
+	while getopts 'cs:k:v:w' arg ; do
 		case ${arg} in
+			s) local section="${OPTARG}" ;;
 			k) local key="${OPTARG}" ;;
 			v) local value="${OPTARG}" ;;
 			c) local createbutdonotupdate="yes" ;;
@@ -87,16 +88,18 @@ function setproperty() {
 	done
 	shift $((OPTIND-1))
 
+	local sk="${section}.${key}"
+
 	#warn if the key was already set and warn was requested (defaults to 'no')
-	if [ "${props[${key}]+isset}" ] ; then
+	if [ "${props[${sk}]+isset}" ] ; then
 		if [ "${warnonalreadyset}" == 'yes' ] ; then
-			echo "[WARNING] property ${key} was already set before being set to [${value}]."
+			echo "[WARNING] property ${sk} was already set before being set to [${value}]."
 		elif [ "${createbutdonotupdate}" == 'yes' ] ; then
 			return
 		fi
 	fi
 	#set the props[key] value
-	props[${key}]="${value}"
+	props[${sk}]="${value}"
 }
 #--------------
 #-^-
@@ -254,6 +257,7 @@ function processafile() {
 		#strip quotes from avalue:
 		avalue="${avalue#\"}" ; avalue="${avalue%\"}"
 
+		#Note: Several properties are lowercased by using the bash variable syntax, with:  ,,
 		#get lowercase value (bash 4.0)
 		avaluelc="${avalue,,}"
 
@@ -262,59 +266,60 @@ function processafile() {
 
 		#process eacy VARIABLE in the ifcfg file, converting it to a property:
 		case "${akey}" in
-			#Note: Several properties are lowercased by using the bash variable syntax with:  ,,
-			TYPE) setproperty -k 'connection.'${akeylc} -v "${avaluelc}" ;;
-			ONBOOT) setproperty -k 'connection.''autoconnect' -v "$( echo "${avaluelc}" | sed -e "s/yes/true/;s/no/false/" )" ;;
-			NAME) setproperty -k 'connection.''id' -v  "${avalue}" ;;
-			HWADDR) setproperty -k '802-3-ethernet.''mac-address' -v "${avalue}" ;;
-			DEVICE) setproperty -k 'connection.''interface-name' -v "${avalue}" ;;
-			UUID) setproperty -k 'connection.''uuid' -v "${avalue}" ;;
-			DOMAIN) setproperty -k 'ipv4.''dns-search' -v "${avalue// /,}" ;;
-			PEERDNS) setproperty -k 'ipv4.''ignore-auto-dns' -v "$( echo "${avaluelc}" | sed -e "s/yes/true/;s/no/false/" )" ;;
-			GATEWAY) setproperty -k 'ipv4.''gateway' -v "${avalue}" ;;
+			TYPE) setproperty -s 'connection' -k "${akeylc}" -v "${avaluelc}" ;;
+			ONBOOT) setproperty -s 'connection' -k 'autoconnect' -v "$( echo "${avaluelc}" | sed -e "s/yes/true/;s/no/false/" )" ;;
+			NAME) setproperty -s 'connection' -k 'id' -v  "${avalue}" ;;
+			HWADDR) setproperty -s '802-3-ethernet' -k 'mac-address' -v "${avalue}" ;;
+			DEVICE) setproperty -s 'connection' -k 'interface-name' -v "${avalue}" ;;
+			UUID) setproperty -s 'connection' -k 'uuid' -v "${avalue}" ;;
+			DOMAIN) setproperty -s 'ipv4' -k 'dns-search' -v "${avalue// /,}" ;;
+			PEERDNS) setproperty -s 'ipv4' -k 'ignore-auto-dns' -v "$( echo "${avaluelc}" | sed -e "s/yes/true/;s/no/false/" )" ;;
+			GATEWAY) setproperty -s 'ipv4' -k 'gateway' -v "${avalue}" ;;
 			#DEFROUTE becomes 'never-default', which has opposite boolean meaning:
-			DEFROUTE) setproperty -k 'ipv4.''never-default' -v "$( echo "${avaluelc}" | sed -e "s/yes/false/;s/no/true/" )" ;;
+			DEFROUTE) setproperty -s 'ipv4' -k 'never-default' -v "$( echo "${avaluelc}" | sed -e "s/yes/false/;s/no/true/" )" ;;
 			#IPV4_FAILURE_FATAL becomes 'ipv4.may-fail', which has opposite boolean meaning:
-			IPV4_FAILURE_FATAL) setproperty -k 'ipv4.''may-fail' -v "$( echo "${avaluelc}" | sed -e "s/yes/false/;s/no/true/" )" ;;
-			BOOTPROTO) setproperty -k 'ipv4.''method' -v "$( echo "${avalue}" | sed -e "s/dhcp/auto/;s/none/manual/;s/static/manual/" )" ;;
+			IPV4_FAILURE_FATAL) setproperty -s 'ipv4' -k 'may-fail' -v "$( echo "${avaluelc}" | sed -e "s/yes/false/;s/no/true/" )" ;;
+			BOOTPROTO) setproperty -s 'ipv4' -k 'method' -v "$( echo "${avalue}" | sed -e "s/dhcp/auto/;s/none/manual/;s/static/manual/" )" ;;
 			#ipv6 stuff:
 			#IPV6_DEFROUTE becomes 'never-default', which has opposite boolean meaning:
-			IPV6_DEFROUTE) setproperty -k 'ipv6.''never-default' -v "$( echo "${avaluelc}" | sed -e "s/yes/false/;s/no/true/" )" ;;
+			IPV6_DEFROUTE) setproperty -s 'ipv6' -k 'never-default' -v "$( echo "${avaluelc}" | sed -e "s/yes/false/;s/no/true/" )" ;;
 			#IPV6_DISABLED will be converted into 'ipv6.method':
-			IPV6_DISABLED) [ "${avaluelc}" == 'yes' ] &&  setproperty -k 'ipv6.''method' -v 'disabled' ;;
-			IPV6_AUTOCONF) setproperty -k 'ipv6.''method' -v "$( echo "${avaluelc}" | sed -e "s/yes/auto/;s/no/manual/" )" ;;
-			IPV6_ADDR_GEN_MODE) setproperty -k 'ipv6.''addr-gen-mode' -v "$( echo "${avaluelc}" )" ;;
+			IPV6_DISABLED) [ "${avaluelc}" == 'yes' ] &&  setproperty -s 'ipv6' -k 'method' -v 'disabled' ;;
+			IPV6_AUTOCONF) setproperty -s 'ipv6' -k 'method' -v "$( echo "${avaluelc}" | sed -e "s/yes/auto/;s/no/manual/" )" ;;
+			IPV6_ADDR_GEN_MODE) setproperty -s 'ipv6' -k 'addr-gen-mode' -v "$( echo "${avaluelc}" )" ;;
 			#IPV6_FAILURE_FATAL becomes 'ipv6.may-fail', which has opposite boolean meaning:
-			IPV6_FAILURE_FATAL) setproperty -k 'ipv6.''may-fail' -v "$( echo "${avaluelc}" | sed -e "s/yes/false/;s/no/true/" )" ;;
-			IPV6INIT) [ "${avaluelc}" == 'no' ] &&  setproperty -k 'ipv6.''method' -v 'disabled' ;;
+			IPV6_FAILURE_FATAL) setproperty -s 'ipv6' -k 'may-fail' -v "$( echo "${avaluelc}" | sed -e "s/yes/false/;s/no/true/" )" ;;
+			IPV6INIT) [ "${avaluelc}" == 'no' ] &&  setproperty -s 'ipv6' -k 'method' -v 'disabled' ;;
+			#firewalld zone can be specified:
+			ZONE) setproperty -s 'connection' -k "${akeylc}" -v "${avalue}" ;;
 			#bond stuff:
-			BONDING_OPTS) setproperty -k 'bond.''options' -v "$( echo "${avalue}" | tr ' ' ',' )" ;;
-			SLAVE) setproperty -k 'connection.''slave-type' -v "$( echo "${avalue}" | sed -e "s/yes/bond/" )" ;;
-			MASTER) setproperty -k 'connection.'${akeylc} -v "${avalue}" ;;
+			BONDING_OPTS) setproperty -s 'bond' -k 'options' -v "$( echo "${avalue}" | tr ' ' ',' )" ;;
+			SLAVE) setproperty -s 'connection' -k 'slave-type' -v "$( echo "${avalue}" | sed -e "s/yes/bond/" )" ;;
+			MASTER) setproperty -s 'connection' -k "${akeylc}" -v "${avalue}" ;;
 			# squelch the 'BONDING_MASTER' parameter. 
 			BONDING_MASTER) ;;
 			#ips/prefixes/netmasks/dns (there can be multiple of each):
-			IPADDR*) setproperty -k 'ipv4.'${akeylc} -v "${avalue}" ;;
-			PREFIX*) setproperty -k 'ipv4.'${akeylc} -v "${avalue}" ;;
-			NETMASK*) setproperty -k 'ipv4.''prefix'${akeylc#netmask} -v "$( netmasktoprefix "${avalue}" )" ;;
-			DNS*) setproperty -k 'ipv4.'${akeylc} -v "${avalue}" ;;
+			IPADDR*) setproperty -s 'ipv4' -k "${akeylc}" -v "${avalue}" ;;
+			PREFIX*) setproperty -s 'ipv4' -k "${akeylc}" -v "${avalue}" ;;
+			NETMASK*) setproperty -s 'ipv4' -k 'prefix'${akeylc#netmask} -v "$( netmasktoprefix "${avalue}" )" ;;
+			DNS*) setproperty -s 'ipv4' -k "${akeylc}" -v "${avalue}" ;;
 			#proxy stuff:
-			BROWSER_ONLY) setproperty -k 'proxy.'${akeylc} -v "${avalue}" ;;
-			PROXY_METHOD) setproperty -k 'proxy.''method' -v "${avalue}" ;;
-			PAC_SCRIPT) setproperty -k 'proxy.'${akeylc} -v "${avalue}" ;;
-			PAC_URL) setproperty -k 'proxy.'${akeylc} -v "${avalue}" ;;
+			BROWSER_ONLY) setproperty -s 'proxy' -k "${akeylc}" -v "${avalue}" ;;
+			PROXY_METHOD) setproperty -s 'proxy' -k 'method' -v "${avalue}" ;;
+			PAC_SCRIPT) setproperty -s 'proxy' -k "${akeylc}" -v "${avalue}" ;;
+			PAC_URL) setproperty -s 'proxy' -k "${akeylc}" -v "${avalue}" ;;
 			#squelch the NM_CONTROLLED parameter, since, well, a keyfile is always nm-controlled.
 			NM_CONTROLLED) ;;
 			#anything unhandled goes here:
-			*) setproperty -k 'UNHANDLED.'${akeylc} -v "${avalue}" ; UNHANDLEDPROPFLAG=TRUE ;;
+			*) setproperty -s 'UNHANDLED' -k "${akeylc}" -v "${avalue}" ; UNHANDLEDPROPFLAG=TRUE ;;
 		esac
 	done
 
 	#set some needed default properties, in case the ifcfg did not have them:
-	setproperty -k 'connection.id' -v  "${interfacename}"
-	setproperty -k 'connection.timestamp' -v "${GEN_TIMESTAMP}" -c
-	setproperty -k 'connection.type' -v 'ethernet' -c
-	setproperty -k 'connection.uuid' -v "${GEN_UUID}" -c
+	setproperty -s 'connection' -k 'id' -v  "${interfacename}"
+	setproperty -s 'connection' -k 'timestamp' -v "${GEN_TIMESTAMP}" -c
+	setproperty -s 'connection' -k 'type' -v 'ethernet' -c
+	setproperty -s 'connection' -k 'uuid' -v "${GEN_UUID}" -c
 
 
 	#coalesce the multi-valued params:
